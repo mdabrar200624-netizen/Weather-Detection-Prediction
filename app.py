@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import joblib
 import numpy as np
+import requests
 
 
 # ============================================================
@@ -75,7 +76,7 @@ detection_model, temperature_model = load_models()
 
 
 # ============================================================
-# LOAD DATA
+# LOAD WEATHER DATA
 # ============================================================
 
 @st.cache_data
@@ -93,6 +94,10 @@ def load_weather_data():
 
 
 weather_data = load_weather_data()
+
+available_cities = sorted(
+    weather_data["City"].unique()
+)
 
 
 # ============================================================
@@ -124,101 +129,466 @@ st.markdown(
 )
 
 st.write(
-    "Enter the weather conditions below to generate predictions."
+    "Choose Auto Mode for live weather data or Manual Mode "
+    "to enter weather conditions yourself."
 )
 
 
-col1, col2 = st.columns(2)
+# ============================================================
+# MODE SELECTION
+# ============================================================
+
+mode = st.radio(
+    "⚙️ Select Mode",
+    ["🤖 Auto Mode", "✋ Manual Mode"],
+    horizontal=True
+)
 
 
 # ============================================================
-# LEFT COLUMN
+# DEFAULT VALUES
 # ============================================================
 
-with col1:
+city = available_cities[0]
+
+date = pd.Timestamp.today().date()
+
+temperature_max = 30.0
+temperature_min = 20.0
+humidity = 60.0
+rainfall = 0.0
+wind_speed = 5.0
+pressure = 1010.0
+cloud_cover = 50
+
+
+# ============================================================
+# AUTO MODE
+# ============================================================
+
+if mode == "🤖 Auto Mode":
+
+    st.info(
+        "🤖 Auto Mode fetches the latest weather conditions "
+        "from OpenWeather."
+    )
 
     city = st.selectbox(
-        "🏙️ City",
-        sorted(
-            weather_data["City"].unique()
+        "🏙️ Select City",
+        available_cities,
+        key="auto_city"
+    )
+
+    # --------------------------------------------------------
+    # CLEAR OLD WEATHER WHEN CITY CHANGES
+    # --------------------------------------------------------
+
+    if (
+        "fetched_city" in st.session_state
+        and st.session_state["fetched_city"] != city
+    ):
+
+        st.session_state.pop(
+            "weather_data",
+            None
         )
-    )
 
-    temperature_max = st.number_input(
-        "🌡️ Maximum Temperature (°C)",
-        min_value=-10.0,
-        max_value=60.0,
-        value=30.0,
-        step=0.1
-    )
+        st.session_state.pop(
+            "fetched_city",
+            None
+        )
 
-    temperature_min = st.number_input(
-        "🌡️ Minimum Temperature (°C)",
-        min_value=-10.0,
-        max_value=50.0,
-        value=20.0,
-        step=0.1
-    )
 
-    humidity = st.number_input(
-        "💧 Humidity (%)",
-        min_value=0.0,
-        max_value=100.0,
-        value=60.0,
-        step=0.1
-    )
+    # --------------------------------------------------------
+    # GET LIVE WEATHER BUTTON
+    # --------------------------------------------------------
 
-    rainfall = st.number_input(
-        "🌧️ Rainfall (mm)",
-        min_value=0.0,
-        value=0.0,
-        step=0.1
-    )
+    if st.button(
+        "🌦️ Get Live Weather",
+        use_container_width=True
+    ):
+
+        try:
+
+            api_key = st.secrets[
+                "OPENWEATHER_API_KEY"
+            ]
+
+            response = requests.get(
+                "https://api.openweathermap.org/data/2.5/weather",
+                params={
+                    "q": city,
+                    "appid": api_key,
+                    "units": "metric"
+                },
+                timeout=10
+            )
+
+            response.raise_for_status()
+
+            weather = response.json()
+
+
+            # ------------------------------------------------
+            # EXTRACT WEATHER DATA
+            # ------------------------------------------------
+
+            temperature = weather["main"]["temp"]
+
+            temperature_max = weather["main"]["temp_max"]
+
+            temperature_min = weather["main"]["temp_min"]
+
+            humidity = weather["main"]["humidity"]
+
+            pressure = weather["main"]["pressure"]
+
+            rainfall = weather.get(
+                "rain",
+                {}
+            ).get(
+                "1h",
+                0.0
+            )
+
+            # OpenWeather gives wind speed in m/s.
+            # Our ML model expects km/h.
+            wind_speed = (
+                weather["wind"]["speed"] * 3.6
+            )
+
+            cloud_cover = weather["clouds"]["all"]
+
+            weather_condition = weather[
+                "weather"
+            ][0]["main"]
+
+            weather_description = weather[
+                "weather"
+            ][0]["description"]
+
+
+            # ------------------------------------------------
+            # SAVE WEATHER DATA
+            # ------------------------------------------------
+
+            st.session_state["weather_data"] = {
+
+                "temperature": temperature,
+
+                "temperature_max": temperature_max,
+
+                "temperature_min": temperature_min,
+
+                "humidity": humidity,
+
+                "rainfall": rainfall,
+
+                "wind_speed": wind_speed,
+
+                "pressure": pressure,
+
+                "cloud_cover": cloud_cover,
+
+                "weather_condition": weather_condition,
+
+                "weather_description": weather_description
+            }
+
+
+            # Remember which city the data belongs to
+            st.session_state[
+                "fetched_city"
+            ] = city
+
+
+            st.success(
+                "✅ Live weather data fetched successfully!"
+            )
+
+
+        except requests.exceptions.HTTPError:
+
+            st.error(
+                "❌ OpenWeather rejected the request. "
+                "Please check your API key or city."
+            )
+
+
+        except requests.exceptions.RequestException as e:
+
+            st.error(
+                f"❌ Unable to connect to OpenWeather: {e}"
+            )
+
+
+        except KeyError:
+
+            st.error(
+                "❌ Unexpected weather data received "
+                "from OpenWeather."
+            )
+
+
+    # ========================================================
+    # DISPLAY LIVE WEATHER
+    # ========================================================
+
+    if "weather_data" in st.session_state:
+
+        live_weather = st.session_state[
+            "weather_data"
+        ]
+
+
+        # ----------------------------------------------------
+        # LOAD SAVED VALUES
+        # ----------------------------------------------------
+
+        temperature_max = live_weather[
+            "temperature_max"
+        ]
+
+        temperature_min = live_weather[
+            "temperature_min"
+        ]
+
+        humidity = live_weather[
+            "humidity"
+        ]
+
+        rainfall = live_weather[
+            "rainfall"
+        ]
+
+        wind_speed = live_weather[
+            "wind_speed"
+        ]
+
+        pressure = live_weather[
+            "pressure"
+        ]
+
+        cloud_cover = live_weather[
+            "cloud_cover"
+        ]
+
+
+        # ----------------------------------------------------
+        # LIVE WEATHER HEADER
+        # ----------------------------------------------------
+
+        st.subheader(
+            "🌦️ Live Weather Conditions"
+        )
+
+
+        st.success(
+            f"🌤️ Current Condition: "
+            f"**{live_weather['weather_condition']}** "
+            f"— {live_weather['weather_description'].title()}"
+        )
+
+
+        # ----------------------------------------------------
+        # MAIN WEATHER METRICS
+        # ----------------------------------------------------
+
+        live_col1, live_col2, live_col3, live_col4 = st.columns(4)
+
+
+        with live_col1:
+
+            st.metric(
+                "🌡️ Temperature",
+                f"{live_weather['temperature']:.1f} °C"
+            )
+
+
+        with live_col2:
+
+            st.metric(
+                "💧 Humidity",
+                f"{humidity:.0f} %"
+            )
+
+
+        with live_col3:
+
+            st.metric(
+                "🌧️ Rainfall",
+                f"{rainfall:.2f} mm"
+            )
+
+
+        with live_col4:
+
+            st.metric(
+                "☁️ Cloud Cover",
+                f"{cloud_cover:.0f} %"
+            )
+
+
+        st.write("")
+
+
+        # ----------------------------------------------------
+        # ADDITIONAL WEATHER DETAILS
+        # ----------------------------------------------------
+
+        detail_col1, detail_col2, detail_col3 = st.columns(3)
+
+
+        with detail_col1:
+
+            st.metric(
+                "💨 Wind Speed",
+                f"{wind_speed:.1f} km/h"
+            )
+
+
+        with detail_col2:
+
+            st.metric(
+                "🔽 Pressure",
+                f"{pressure:.0f} hPa"
+            )
+
+
+        with detail_col3:
+
+            st.metric(
+                "🌡️ Max / Min",
+                f"{temperature_max:.1f} / "
+                f"{temperature_min:.1f} °C"
+            )
+
+
+        date = pd.Timestamp.today().date()
 
 
 # ============================================================
-# RIGHT COLUMN
+# MANUAL MODE
 # ============================================================
 
-with col2:
+else:
 
-    date = st.date_input(
-        "📅 Date"
-    )
-
-    wind_speed = st.number_input(
-        "💨 Wind Speed (km/h)",
-        min_value=0.0,
-        value=5.0,
-        step=0.1
-    )
-
-    pressure = st.number_input(
-        "🌡️ Pressure (hPa)",
-        min_value=900.0,
-        max_value=1100.0,
-        value=1010.0,
-        step=0.1
-    )
-
-    cloud_cover = st.slider(
-        "☁️ Cloud Cover (%)",
-        min_value=0,
-        max_value=100,
-        value=50
+    st.info(
+        "✋ Manual Mode allows you to enter weather "
+        "conditions yourself."
     )
 
 
-st.write("")
+    col1, col2 = st.columns(2)
+
+
+    # --------------------------------------------------------
+    # LEFT COLUMN
+    # --------------------------------------------------------
+
+    with col1:
+
+        city = st.selectbox(
+            "🏙️ City",
+            available_cities,
+            key="manual_city"
+        )
+
+
+        temperature_max = st.number_input(
+            "🌡️ Maximum Temperature (°C)",
+            min_value=-10.0,
+            max_value=60.0,
+            value=30.0,
+            step=0.1
+        )
+
+
+        temperature_min = st.number_input(
+            "🌡️ Minimum Temperature (°C)",
+            min_value=-10.0,
+            max_value=50.0,
+            value=20.0,
+            step=0.1
+        )
+
+
+        humidity = st.number_input(
+            "💧 Humidity (%)",
+            min_value=0.0,
+            max_value=100.0,
+            value=60.0,
+            step=0.1
+        )
+
+
+        rainfall = st.number_input(
+            "🌧️ Rainfall (mm)",
+            min_value=0.0,
+            value=0.0,
+            step=0.1
+        )
+
+
+    # --------------------------------------------------------
+    # RIGHT COLUMN
+    # --------------------------------------------------------
+
+    with col2:
+
+        date = st.date_input(
+            "📅 Date"
+        )
+
+
+        wind_speed = st.number_input(
+            "💨 Wind Speed (km/h)",
+            min_value=0.0,
+            value=5.0,
+            step=0.1
+        )
+
+
+        pressure = st.number_input(
+            "🌡️ Pressure (hPa)",
+            min_value=900.0,
+            max_value=1100.0,
+            value=1010.0,
+            step=0.1
+        )
+
+
+        cloud_cover = st.slider(
+            "☁️ Cloud Cover (%)",
+            min_value=0,
+            max_value=100,
+            value=50
+        )
 
 
 # ============================================================
 # PREDICTION BUTTON
 # ============================================================
 
+prediction_ready = (
+
+    mode == "✋ Manual Mode"
+
+    or (
+
+        "weather_data" in st.session_state
+
+        and st.session_state.get(
+            "fetched_city"
+        ) == city
+    )
+)
+
+
 predict_button = st.button(
     "🔍 Detect Weather & Predict Temperature",
-    use_container_width=True
+    use_container_width=True,
+    disabled=not prediction_ready
 )
 
 
@@ -232,27 +602,34 @@ if predict_button:
         "Analyzing weather conditions..."
     ):
 
+
         # ====================================================
         # DATE FEATURES
         # ====================================================
 
         year = date.year
+
         month = date.month
+
         day = date.day
 
         day_of_year = date.timetuple().tm_yday
+
 
         month_sin = np.sin(
             2 * np.pi * month / 12
         )
 
+
         month_cos = np.cos(
             2 * np.pi * month / 12
         )
 
+
         day_of_year_sin = np.sin(
             2 * np.pi * day_of_year / 365.25
         )
+
 
         day_of_year_cos = np.cos(
             2 * np.pi * day_of_year / 365.25
@@ -265,6 +642,7 @@ if predict_button:
 
         detection_input = pd.DataFrame(
             {
+
                 "Temperature_Max (°C)": [
                     temperature_max
                 ],
@@ -274,7 +652,10 @@ if predict_button:
                 ],
 
                 "Temperature_Avg (°C)": [
-                    (temperature_max + temperature_min) / 2
+                    (
+                        temperature_max
+                        + temperature_min
+                    ) / 2
                 ],
 
                 "Humidity (%)": [
@@ -315,6 +696,7 @@ if predict_button:
 
         temperature_input = pd.DataFrame(
             {
+
                 "Humidity (%)": [
                     humidity
                 ],
@@ -389,10 +771,14 @@ if predict_button:
 
     st.divider()
 
+
     st.markdown(
-        '<div class="section-title">🎯 Prediction Results</div>',
+        '<div class="section-title">'
+        '🎯 Prediction Results'
+        '</div>',
         unsafe_allow_html=True
     )
+
 
     result_col1, result_col2 = st.columns(2)
 
@@ -414,7 +800,7 @@ if predict_button:
 
 
     st.success(
-        "Prediction completed successfully!"
+        "✅ Prediction completed successfully!"
     )
 
 
@@ -423,37 +809,61 @@ if predict_button:
     # ========================================================
 
     st.markdown(
-        '<div class="section-title">📋 Input Summary</div>',
+        '<div class="section-title">'
+        '📋 Input Summary'
+        '</div>',
         unsafe_allow_html=True
     )
 
+
     summary = pd.DataFrame(
         {
+
             "Parameter": [
+
                 "City",
+
                 "Date",
+
                 "Maximum Temperature",
+
                 "Minimum Temperature",
+
                 "Humidity",
+
                 "Rainfall",
+
                 "Wind Speed",
+
                 "Pressure",
+
                 "Cloud Cover"
             ],
 
+
             "Value": [
+
                 city,
+
                 str(date),
+
                 f"{temperature_max:.1f} °C",
+
                 f"{temperature_min:.1f} °C",
+
                 f"{humidity:.1f} %",
+
                 f"{rainfall:.1f} mm",
+
                 f"{wind_speed:.1f} km/h",
+
                 f"{pressure:.1f} hPa",
+
                 f"{cloud_cover:.1f} %"
             ]
         }
     )
+
 
     st.dataframe(
         summary,
@@ -468,10 +878,14 @@ if predict_button:
 
 st.divider()
 
+
 st.markdown(
-    '<div class="section-title">📈 Historical Weather Analysis</div>',
+    '<div class="section-title">'
+    '📈 Historical Weather Analysis'
+    '</div>',
     unsafe_allow_html=True
 )
+
 
 st.write(
     "Explore historical weather patterns from the dataset."
@@ -480,9 +894,7 @@ st.write(
 
 graph_city = st.selectbox(
     "🏙️ Select a city for historical analysis",
-    sorted(
-        weather_data["City"].unique()
-    ),
+    available_cities,
     key="graph_city"
 )
 
@@ -550,10 +962,14 @@ st.line_chart(
 
 st.divider()
 
+
 st.markdown(
-    '<div class="section-title">🤖 Model Performance</div>',
+    '<div class="section-title">'
+    '🤖 Model Performance'
+    '</div>',
     unsafe_allow_html=True
 )
+
 
 st.write(
     "Performance of the machine learning models evaluated "
@@ -650,31 +1066,51 @@ st.subheader(
 
 comparison_data = pd.DataFrame(
     {
+
         "Model": [
+
             "Linear Regression",
+
             "Gradient Boosting",
+
             "Random Forest",
+
             "Decision Tree"
         ],
 
+
         "MAE (°C)": [
+
             5.07,
+
             5.12,
+
             5.12,
+
             5.94
         ],
 
+
         "RMSE (°C)": [
+
             5.94,
+
             6.02,
+
             6.03,
+
             7.19
         ],
 
+
         "R² Score": [
+
             0.00,
+
             -0.03,
+
             -0.03,
+
             -0.47
         ]
     }
@@ -714,6 +1150,7 @@ st.info(
 # ============================================================
 
 st.divider()
+
 
 st.caption(
     "Weather Detection & Temperature Prediction | "
