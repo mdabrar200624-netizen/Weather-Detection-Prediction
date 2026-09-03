@@ -3,4 +3,12 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .streamlit/secrets.toml
+.streamlit/pkce_storage.json
 .env
+
+abrar_github
+abrar_github.pub
+app_backup.py
+app_before_google.py
+test_weather_api.py
+
