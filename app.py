@@ -109,6 +109,7 @@ available_cities = sorted(
 # HEADER
 # ============================================================
 
+
 st.markdown(
     """
     <div class="main-title">
@@ -116,11 +117,12 @@ st.markdown(
     </div>
 
     <div class="subtitle">
-        Machine Learning powered weather analysis and prediction
+        Data Science based weather analysis and temperature prediction
     </div>
     """,
     unsafe_allow_html=True
 )
+
 
 
 # ============================================================
