@@ -762,6 +762,7 @@ with performance_col2:
     )
 
 
+
 # ============================================================
 # FOOTER
 # ============================================================
@@ -771,22 +772,19 @@ st.divider()
 st.markdown(
     """
     <div style="
-        text-align:center;
-        color:gray;
-        font-size:14px;
-        padding:10px;
+        text-align: center;
+        color: gray;
+        font-size: 14px;
+        padding: 15px;
+        line-height: 2;
     ">
-
         🌦️ Weather Detection & Temperature Prediction
-
         <br>
-
-        🤖 Machine Learning
-        &nbsp;•&nbsp;
+        📊 Data Science
+        &nbsp; • &nbsp;
         🌐 OpenWeather API
-        &nbsp;•&nbsp;
+        &nbsp; • &nbsp;
         🔓 Public Dashboard
-
     </div>
     """,
     unsafe_allow_html=True
